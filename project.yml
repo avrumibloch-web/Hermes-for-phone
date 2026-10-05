@@ -1,0 +1,45 @@
+# XcodeGen spec. On a Mac:  brew install xcodegen && xcodegen generate && open Hermes.xcodeproj
+name: Hermes
+options:
+  bundleIdPrefix: com.example.hermes   # change to your own reverse-DNS prefix
+  deploymentTarget:
+    iOS: "27.0"
+  createIntermediateGroups: true
+
+packages:
+  HermesKit:
+    path: .
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""             # set your Apple team ID (or pick it in Xcode > Signing)
+
+targets:
+  Hermes:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+    dependencies:
+      - package: HermesKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.hermes.app
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Hermes
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription: "Hermes reads and creates calendar events when you ask it to."
+        INFOPLIST_KEY_NSRemindersFullAccessUsageDescription: "Hermes reads and creates reminders when you ask it to."
+    info:
+      path: App/Info.plist
+      properties:
+        UIBackgroundModes: [fetch, processing]
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.example.hermes.cron
+          - com.example.hermes.review
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: false
