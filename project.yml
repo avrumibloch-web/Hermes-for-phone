@@ -4,6 +4,7 @@ options:
   bundleIdPrefix: com.example.hermes   # change to your own reverse-DNS prefix
   deploymentTarget:
     iOS: "27.0"
+    macOS: "27.0"
   createIntermediateGroups: true
 
 packages:
@@ -13,11 +14,12 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "0.2.0"
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: ""             # set your Apple team ID (or pick it in Xcode > Signing)
 
 targets:
+  # iPhone app
   Hermes:
     type: application
     platform: iOS
@@ -25,6 +27,14 @@ targets:
       - path: App
     dependencies:
       - package: HermesKit
+        product: HermesKit
+      - package: HermesKit
+        product: HermesLocalModels
+    entitlements:
+      path: Config/Hermes-iOS.entitlements
+      properties:
+        # Lets a 4B local model (~2.3 GB) load alongside the app on iPhone.
+        com.apple.developer.kernel.increased-memory-limit: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.hermes.app
@@ -35,11 +45,34 @@ targets:
         INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription: "Hermes reads and creates calendar events when you ask it to."
         INFOPLIST_KEY_NSRemindersFullAccessUsageDescription: "Hermes reads and creates reminders when you ask it to."
     info:
-      path: App/Info.plist
+      path: Config/Hermes-iOS-Info.plist
       properties:
         UIBackgroundModes: [fetch, processing]
         BGTaskSchedulerPermittedIdentifiers:
           - com.example.hermes.cron
           - com.example.hermes.review
-        NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: false
+
+  # Mac app: same code. Runs without the App Sandbox so the terminal, disk_usage and
+  # Shortcuts tools can reach your files and command-line tools. Personal use, not for
+  # the Mac App Store.
+  HermesMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+    dependencies:
+      - package: HermesKit
+        product: HermesKit
+      - package: HermesKit
+        product: HermesLocalModels
+    settings:
+      base:
+        PRODUCT_NAME: Hermes
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.hermes.mac
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Hermes
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription: "Hermes reads and creates calendar events when you ask it to."
+        INFOPLIST_KEY_NSRemindersFullAccessUsageDescription: "Hermes reads and creates reminders when you ask it to."
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: YES

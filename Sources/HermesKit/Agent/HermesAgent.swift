@@ -26,7 +26,7 @@ public actor HermesAgent {
     public let sessions: SessionStore
     public let cron: CronStore
     let calendar = CalendarService()
-    let models = ModelProvider()
+    var models = ModelProvider()
     let counter: TokenCounting
     public private(set) var settings: HermesSettings
 
@@ -66,10 +66,41 @@ public actor HermesAgent {
         await memory.setLimits(memory: new.memoryCharLimit, user: new.userCharLimit)
     }
 
-    /// nil when ready; otherwise why the agent can't run.
-    public func availabilityProblem() -> String? {
+    /// Installs (or removes) the open-weight local model. The app builds it from
+    /// `settings.localModelID` with HermesLocalModels.
+    public func setLocalModel(_ provider: (any LocalModelProvider)?) {
+        models.local = provider
+    }
+
+    public var localModel: (any LocalModelProvider)? { models.local }
+
+    /// nil when some model can answer; otherwise why none can.
+    public func availabilityProblem() async -> String? {
         guard let reason = models.onDeviceUnavailableReason() else { return nil }
-        return settings.allowPrivateCloud ? nil : reason
+        return await models.readySmartTier(settings.smartModel) == nil ? reason : nil
+    }
+
+    /// Picks the model for a turn: the smart model when wanted and ready, otherwise Apple's
+    /// on-device model, otherwise whichever smart model is ready.
+    func resolveTier(wantsSmart: Bool) async -> Result<ModelTier, AgentError> {
+        let smart = await models.readySmartTier(settings.smartModel)
+        if wantsSmart, let smart { return .success(smart) }
+        if let problem = models.onDeviceUnavailableReason() {
+            if let smart { return .success(smart) }
+            return .failure(AgentError(message: problem))
+        }
+        return .success(.onDevice)
+    }
+
+    /// Model for internal work (summaries, learning review): on-device when possible,
+    /// so it stays fast and doesn't use Private Cloud Compute quota.
+    func workerTier() async -> ModelTier? {
+        if models.onDeviceUnavailableReason() == nil { return .onDevice }
+        return await models.readySmartTier(settings.smartModel)
+    }
+
+    public struct AgentError: Error, Sendable {
+        public let message: String
     }
 
     // MARK: Sessions
@@ -124,20 +155,22 @@ public actor HermesAgent {
         }
 
         var route = Router.route(
-            text, settings: settings, hasSkills: !installed.isEmpty, forceTier: command.forceTier,
+            text, settings: settings, hasSkills: !installed.isEmpty, forceSmart: command.forceSmart,
             loadedSkillBodies: preloaded.map { $0.body }
         )
-        // Unattended sources can't open Shortcuts, and cron jobs don't schedule more cron jobs.
+        // Unattended sources can't open Shortcuts (on iPhone), cron jobs don't schedule
+        // more cron jobs, and shell commands only run from the chat window.
+        #if os(iOS)
         if session.source != .app { route.toolsets.removeAll { $0 == .shortcuts } }
+        #endif
         if session.source == .cron { route.toolsets.removeAll { $0 == .cron } }
+        if session.source != .app { route.toolsets.removeAll { $0 == .terminal } }
 
-        var tier = route.tier
-        if tier == .privateCloud, !settings.allowPrivateCloud { tier = .onDevice }
-        if tier == .onDevice, let problem = models.onDeviceUnavailableReason() {
-            guard settings.allowPrivateCloud else {
-                return AgentReply(text: problem, sessionID: sessionID, tier: tier, activity: [], compressedHistory: false)
-            }
-            tier = .privateCloud
+        var tier: ModelTier
+        switch await resolveTier(wantsSmart: route.wantsSmart) {
+        case .success(let t): tier = t
+        case .failure(let error):
+            return AgentReply(text: error.message, sessionID: sessionID, tier: .onDevice, activity: [], compressedHistory: false)
         }
 
         let userMessageID = try await sessions.append(sessionID, role: "user", content: input)
@@ -156,28 +189,44 @@ public actor HermesAgent {
         var replyText: String?
         var lastFailure: GenerationFailure?
 
-        // Attempt 0: normal. Attempt 1: squeeze history harder. Attempt 2: escalate to PCC if allowed.
+        // Attempt 0: normal. Attempt 1: squeeze history harder (on overflow) or switch model
+        // (smart model failed or hit its limit → on-device, and vice versa). Attempt 2:
+        // move an overflowing on-device turn to the smart model, whose context is bigger.
+        var squeeze = false
         for attempt in 0..<3 {
-            if attempt == 2 {
-                guard tier == .onDevice, settings.allowPrivateCloud else { break }
-                tier = .privateCloud
-            }
             let prepared = try await prepareTurn(
                 session: session, userText: text, excludeMessageID: userMessageID,
                 tier: tier, toolCount: tools.count, toolsets: route.toolsets,
-                preloaded: preloaded, squeeze: attempt == 1
+                preloaded: preloaded, squeeze: squeeze
             )
             compressed = compressed || prepared.compressed
             do {
                 let lm = models.makeSession(tier: tier, tools: tools, instructions: prepared.instructions)
-                let response = try await lm.respond(to: prepared.prompt, options: models.generationOptions(for: tier))
-                replyText = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                let content = try await models.respond(lm, to: prepared.prompt, tier: tier)
+                replyText = content.trimmingCharacters(in: .whitespacesAndNewlines)
                 break
             } catch {
                 let failure = GenerationFailure(error)
                 lastFailure = failure
-                if case .contextOverflow = failure { continue }
-                break
+                guard attempt < 2 else { break }
+                if case .contextOverflow = failure {
+                    if !squeeze {
+                        squeeze = true
+                    } else if tier == .onDevice, let smart = await models.readySmartTier(settings.smartModel) {
+                        tier = smart
+                    } else {
+                        break
+                    }
+                    continue
+                }
+                guard failure.shouldFallBack else { break }
+                if tier != .onDevice, models.onDeviceUnavailableReason() == nil {
+                    tier = .onDevice
+                } else if tier == .onDevice, let smart = await models.readySmartTier(settings.smartModel) {
+                    tier = smart
+                } else {
+                    break
+                }
             }
         }
 

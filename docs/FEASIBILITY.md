@@ -25,14 +25,26 @@
 | Context compression | ✅ (needed much more often) | Rolling summary per session, `HistoryFitter` |
 | Learning loop (background review → memory/skills) | ✅ (deferred) | Sessions are flagged, then reviewed when the app goes to the background or on charger |
 | Subagents / delegation | ✅ (sequential, one level) | `delegate_task`: fresh context, short answer back |
-| Cron | ⚠️ partial | No daemons on iOS. Jobs run from a Shortcuts "Time of Day" automation (exact), `BGAppRefreshTask` (iOS decides when), or app launch |
+| Cron | ⚠️ iPhone / ✅ Mac | No daemons on iOS: jobs run from a Shortcuts "Time of Day" automation (exact), `BGAppRefreshTask`, or app launch. The Mac app stays in the menu bar and runs jobs on time |
 | SOUL.md personality | ✅ | Editable `SOUL.md` in the app container |
 | `/skill` slash commands, `/new` | ✅ | Plus `/think` (PCC) and `/local` |
-| Terminal backends, code execution, `execute_code` | ❌ | iOS apps can't spawn processes. The way around it is a Mac/server tool, not on-device |
+| Terminal tool | ❌ iPhone / ✅ Mac | iOS apps can't spawn processes. The Mac app (unsandboxed, personal use) has a `terminal` tool, off by default |
 | Browser automation, computer use | ❌ | Not possible in the iOS sandbox |
 | 20+ messaging gateways (Telegram, Discord…) | ❌ on-device | These need an always-on process. The equivalent is Siri + the app + notifications |
-| Big-model reasoning | ⚠️ | Opt-in Private Cloud Compute (`/think`), or a `LanguageModel` conformer for Claude/your Mac later |
+| Big-model reasoning | ✅ free | Local MLX models (Qwen3 etc.) or Private Cloud Compute, as the "smart model" (`/think`) |
 | Controlling other apps, HomeKit, Messages | ⚠️ | No public API for most of it. `run_shortcut` starts any Shortcut by name (foreground only) |
+
+## "Clever, free, on my phone or MacBook"
+
+| Claim | Verdict | Notes |
+|---|---|---|
+| Apple's on-device model is free to use in your app | **True** | No API key, no per-token cost, works offline. It's small (~3B), so it's good at tools and short tasks, not deep reasoning. |
+| Private Cloud Compute is free | **True, with a daily limit** | "No token cost to the developer." Each user gets a daily limit counted against their iCloud account (higher with iCloud+). Apps apply for access, and apps under 2M downloads are eligible. It's Apple's servers, not your device, but with Apple's privacy guarantees (nothing stored, independently verified). 32K context, reasoning levels light/moderate/deep. |
+| You can run bigger open models on the phone/Mac through the same API | **True** | Apple's `MLXFoundationModels` (in `ml-explore/mlx-swift-lm`) provides `MLXLanguageModel`, a `LanguageModel` conformer with tool calling and guided generation. It runs mlx-community models like Qwen3 from Hugging Face. |
+| A MacBook can run a genuinely capable local model | **True, RAM-bound** | 16 GB: an 8B 4-bit model. 32 GB+: Qwen3-30B-A3B (fast, since only 3B parameters are active per token) or a 27B model. No Nvidia GPU needed: MLX uses the Apple-silicon GPU and unified memory. |
+| An iPhone can run an open model too | **True for small ones** | A 4B 4-bit model (~2.3 GB) fits on an iPhone 18 Pro with the increased-memory-limit entitlement. It's slower than Apple's own model, which is tuned for the Neural Engine. |
+
+Sources for this section: [WWDC26 session 319: Apple Foundation Model on Private Cloud Compute](https://developer.apple.com/videos/play/wwdc2026/319/), [WWDC26 session 339: Bring an LLM provider to the Foundation Models framework](https://developer.apple.com/videos/play/wwdc2026/339/), [ml-explore/mlx-swift-lm MLXFoundationModels](https://github.com/ml-explore/mlx-swift-lm/blob/main/Libraries/MLXFoundationModels/README.md).
 
 ## "Let Siri AI be the agent, my app is just the tools"
 

@@ -220,7 +220,8 @@ final class CronTests: XCTestCase {
 final class RoutingTests: XCTestCase {
     func testSlashCommands() {
         let c = SlashCommand.parse("/think /morning-briefing keep it short", installedSkills: ["morning-briefing"])
-        XCTAssertEqual(c.forceTier, .privateCloud)
+        XCTAssertEqual(c.forceSmart, true)
+        XCTAssertEqual(SlashCommand.parse("/fast hi", installedSkills: []).forceSmart, false)
         XCTAssertEqual(c.skills, ["morning-briefing"])
         XCTAssertEqual(c.text, "keep it short")
 
@@ -234,18 +235,36 @@ final class RoutingTests: XCTestCase {
         let r = Router.route("Remind me to call mom tomorrow", settings: settings, hasSkills: true)
         XCTAssertTrue(r.toolsets.contains(.reminders))
         XCTAssertEqual(r.toolsets.first, .memory)
-        XCTAssertEqual(r.tier, .onDevice)
+        XCTAssertFalse(r.wantsSmart)
 
-        // Escalation needs both settings on.
+        // Without a smart model, nothing escalates.
         let hard = Router.route("Analyze the pros and cons of these two leases", settings: settings, hasSkills: false)
-        XCTAssertEqual(hard.tier, .onDevice)
-        settings.allowPrivateCloud = true
+        XCTAssertFalse(hard.wantsSmart)
+        settings.smartModel = .local
         let escalated = Router.route("Analyze the pros and cons of these two leases", settings: settings, hasSkills: false)
-        XCTAssertEqual(escalated.tier, .privateCloud)
+        XCTAssertTrue(escalated.wantsSmart)
+        let easy = Router.route("What time is it?", settings: settings, hasSkills: false)
+        XCTAssertFalse(easy.wantsSmart)
+        settings.useSmartModelForEverything = true
+        XCTAssertTrue(Router.route("What time is it?", settings: settings, hasSkills: false).wantsSmart)
+        XCTAssertFalse(Router.route("What time is it?", settings: settings, hasSkills: false, forceSmart: false).wantsSmart)
 
         settings.allowNetworkTools = false
         let web = Router.route("fetch https://example.com", settings: settings, hasSkills: false)
         XCTAssertFalse(web.toolsets.contains(.web))
+
+        // The terminal toolset needs the setting.
+        XCTAssertFalse(Router.route("run the command ls in terminal", settings: settings, hasSkills: false).toolsets.contains(.terminal))
+        settings.allowTerminal = true
+        XCTAssertTrue(Router.route("run the command ls in terminal", settings: settings, hasSkills: false).toolsets.contains(.terminal))
+    }
+
+    func testSettingsDecodeToleratesMissingKeys() throws {
+        let old = #"{"backgroundReview": false, "memoryCharLimit": 900, "allowPrivateCloud": true}"#
+        let s = try JSONDecoder().decode(HermesSettings.self, from: Data(old.utf8))
+        XCTAssertFalse(s.backgroundReview)
+        XCTAssertEqual(s.memoryCharLimit, 900)
+        XCTAssertEqual(s.smartModel, .off)
     }
 
     func testNamedSkillLoadsItsTools() {

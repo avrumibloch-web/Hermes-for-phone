@@ -1,59 +1,65 @@
-# Hermes for iPhone
+# Hermes for iPhone and Mac
 
-A port of the [Hermes Agent](https://github.com/NousResearch/hermes-agent) harness (Nous Research, MIT) to iOS 27. It runs on Apple's on-device Foundation Model and is triggered by Siri. No server, no API key. By default nothing leaves the phone.
+A port of the [Hermes Agent](https://github.com/NousResearch/hermes-agent) harness (Nous Research, MIT) that runs on your own Apple devices. **No Nvidia GPU, no API subscription, no server.** The brain is Apple's Foundation Models framework, plus optional open models run locally.
 
-Hermes is a model plus a harness: memory, skills, session search, context compression, a learning loop, cron, and tools. This repo rebuilds the harness in Swift around `FoundationModels`, sized for the on-device model's **8,192-token** context.
+Hermes is a model plus a harness: memory, skills, session search, context compression, a learning loop, cron, and tools. This repo rebuilds the harness in Swift around `FoundationModels`.
 
-> Is the original plan accurate? Mostly. The context is 8K now, not 4K, and apps don't get the Gemini-built "Siri AI" model. See [docs/FEASIBILITY.md](docs/FEASIBILITY.md).
+## Models: all free
+
+Every model is used through the same Foundation Models API (`LanguageModelSession`, `Tool`, `@Generable`), so the harness doesn't care which one answers.
+
+| Tier | What | Cost | Where it runs | Context | Good for |
+|---|---|---|---|---|---|
+| **Fast** (default) | Apple on-device model (`SystemLanguageModel`) | Free | iPhone / Mac, offline | 8K | Most requests: tool use, short answers, summaries |
+| **Smart, local** | Open model via MLX, e.g. Qwen3 (`MLXLanguageModel`) | Free (one download) | iPhone / Mac GPU, offline | 16K+ (you choose) | Harder requests, longer context, everything on a big Mac |
+| **Smart, Apple cloud** | Private Cloud Compute (`PrivateCloudComputeLanguageModel`) | Free (daily limit per iCloud account) | Apple's private servers | 32K + reasoning | The hardest requests, when online |
+
+Pick the smart model in Settings. Hard-looking requests go to it automatically. Type `/think` to force it or `/fast` to stay on Apple's model. If the smart model fails or hits its limit, Hermes falls back to the on-device model, and the other way round.
+
+Which local model fits:
+
+| Device | Model | Size |
+|---|---|---|
+| iPhone 18 Pro, any Apple-silicon Mac | `mlx-community/Qwen3-4B-4bit` | ~2.3 GB |
+| Mac with 16 GB | `mlx-community/Qwen3-8B-4bit` | ~4.7 GB |
+| Mac with 32 GB+ | `mlx-community/Qwen3-30B-A3B-4bit` (fast: 3B active) | ~17 GB |
+| Mac with 32 GB+ | `mlx-community/Qwen3.6-27B-4bit` | ~15 GB |
+
+Any `mlx-community` model id works. Those are the ones with tool calling that the MLX adapter knows.
+
+> Siri is optional: it's only a voice trigger ("Ask Hermes"). Siri's own model isn't used. More background in [docs/FEASIBILITY.md](docs/FEASIBILITY.md).
 
 ## Status
 
-**v0.1, not yet compiled.** The code was written against the iOS 27 SDK as documented at WWDC26, in a Linux environment with no Xcode. Expect a few compile fixes on first build. Every SDK-specific call into Foundation Models is in [`Sources/HermesKit/Models/ModelProvider.swift`](Sources/HermesKit/Models/ModelProvider.swift), so that's the first place to look.
-
-## Two halves: agent and toolbox
-
-Siri AI (the new Siri in iOS 27) only reasons over actions that adopt Apple's **App Schemas**. Custom tools (your Mac, Pi, servers) don't fit a schema. So the app does both jobs:
-
-- **Toolbox:** plain App Intents (`App/Intents/ToolboxIntents.swift`) for phone status, URL fetch, remember, history search, and run-a-skill. Siri runs them by phrase. Shortcuts can chain them and pass their output to the built-in **Use Model** action, so Apple's model does the reasoning.
-- **Agent:** "Ask Hermes" for open-ended requests. The Foundation Models harness below picks the tools itself.
-
-Details and sources: [docs/FEASIBILITY.md](docs/FEASIBILITY.md#let-siri-ai-be-the-agent-my-app-is-just-the-tools).
+**v0.2, not yet compiled.** It was written against the iOS/macOS 27 SDK as documented at WWDC26, plus the source of Apple's `mlx-swift-lm` adapter, in a Linux environment with no Xcode. Expect a few compile fixes on first build.
+- Foundation Models specifics are all in [`Sources/HermesKit/Models/ModelProvider.swift`](Sources/HermesKit/Models/ModelProvider.swift).
+- MLX specifics are all in [`Sources/HermesLocalModels/MLXLocalModel.swift`](Sources/HermesLocalModels/MLXLocalModel.swift).
 
 ## How it maps to Hermes
 
 | Hermes | Here |
 |---|---|
-| `~/.hermes/memories/MEMORY.md`, `USER.md` (§ entries, char budgets, frozen snapshot, `memory` tool) | `MemoryStore`: same format and rules. Budgets 1,200 / 700 chars (Hermes: 2,200 / 1,375) |
-| `~/.hermes/skills/**/SKILL.md`, `skills_list` / `skill_view` / `skill_manage` | `SkillStore` + the same three tools. Bundled starter skills in `Resources/BundledSkills` |
-| `state.db` + FTS5 + `session_search` | `SessionStore` (SQLite, FTS5) + `session_search` |
-| Context compressor | Rolling per-session summary. Recent turns kept verbatim (`HistoryFitter`) |
-| Background review (learning loop) | `LearningLoop.swift`: Hermes' review prompt, condensed. Runs when the app backgrounds or on charger |
-| Toolsets | `Router`: picks only the toolsets a request needs, so tool schemas fit in 8K |
-| `delegate_task` subagents | Same, sequential, one level deep |
-| Cron | `CronStore` + `cronjob` tool. Runs from a Shortcuts automation / background refresh / app open, with results as notifications |
+| `MEMORY.md`, `USER.md` (§ entries, char budgets, frozen snapshot, `memory` tool) | `MemoryStore`: same format and rules. Budgets 1,200 / 700 chars (Hermes: 2,200 / 1,375) |
+| `skills/**/SKILL.md`, `skills_list` / `skill_view` / `skill_manage` | `SkillStore` + the same tools. Skills named in a message load automatically, with the tools they use |
+| `state.db` + FTS5 + `session_search` | `SessionStore` (SQLite, FTS5) |
+| Context compressor | Rolling per-session summary. Recent turns kept verbatim |
+| Background review (learning loop) | `LearningLoop.swift`. Runs when the app backgrounds or on charger (iPhone), or every 15 min (Mac) |
+| Toolsets | `Router`: only the tools a request needs, so they fit in 8K |
+| `delegate_task` | Same: a fresh-context helper, one level deep |
+| Cron | `cronjob` tool. On the Mac it's a real clock (menu bar app). On iPhone: Shortcuts automation, background refresh, or app open |
+| Terminal tool | Mac only, off by default, chat window only, with a blocklist |
 | `SOUL.md` | `SOUL.md` in the app container |
-| `/skill-name`, `/new` | Same, plus `/think` (Private Cloud Compute) and `/local` |
-| CLI / Telegram / Discord gateways | Siri (App Intents) + the app |
+| `/skill`, `/new` | Same, plus `/think` and `/fast` |
 
-Device tools: `device_status`, `calendar_events`, `create_calendar_event`, `reminders_list`, `create_reminder`, `web_fetch`, `run_shortcut` (any of your Shortcuts: HomeKit, Messages, Music…), `cronjob`, `delegate_task`.
+Tools:
+- **Both devices:** `memory`, `skills_list`, `skill_view`, `skill_manage`, `session_search`, `device_status`, `calendar_events`, `create_calendar_event`, `reminders_list`, `create_reminder`, `web_fetch`, `run_shortcut`, `cronjob`, `delegate_task`.
+- **Mac only:** `disk_usage` and `terminal`. On the Mac, `run_shortcut` also runs headless and returns the Shortcut's output.
 
-## One turn
-
-```
-Siri / app / scheduled job
-   → slash commands (/think, /local, /<skill>)
-   → Router: toolsets + model tier (on-device unless you opted into PCC)
-   → instructions = SOUL.md + date + memory snapshot (frozen at session start) + skills index + summary
-   → fit recent turns into what's left of 8K; summarize the overflow
-   → LanguageModelSession(model, tools: only the routed ones).respond(...)   ← framework runs the tool loop
-   → store messages + tool log; flag the session for the learning loop
-```
-
-If the model still overflows, the harness squeezes the history harder and retries. If you allowed it, it then retries on Private Cloud Compute.
+The same tools are also plain App Intents (`App/Intents/ToolboxIntents.swift`), so Shortcuts and Spotlight can use them directly.
 
 ## Build and run
 
-Requirements: a Mac with Xcode 27, an iPhone that supports Apple Intelligence (the iPhone 18 Pro does) on iOS 27, with Apple Intelligence turned on.
+You need Xcode 27 on a Mac, and iOS 27 / macOS 27 with Apple Intelligence turned on.
 
 ```bash
 brew install xcodegen
@@ -61,46 +67,41 @@ xcodegen generate
 open Hermes.xcodeproj
 ```
 
-1. In `project.yml`, set `bundleIdPrefix` and the `com.example.hermes.*` identifiers to your own, and set your team in Signing. Change the BG task IDs in `App/HermesRuntime.swift` to match.
-2. Run on the device. Allow notifications. Calendar and Reminders permissions are requested the first time Hermes uses them.
-3. Siri: "Ask Hermes" → "What should Hermes do?" → your request.
-4. Scheduled jobs: ask "every weekday at 7:30 give me my morning briefing". Then for exact timing, in Shortcuts › Automation › + › Time of Day, pick 7:30, add **Run Hermes Scheduled Jobs**, and choose Run Immediately.
+1. In `project.yml`, set `bundleIdPrefix`, the bundle ids and your team. Keep the BG task ids in `App/HermesRuntime.swift` in sync.
+2. Pick a scheme: **Hermes** (iPhone) or **HermesMac**. On first build Xcode asks you to trust the macros from `mlx-swift-lm`. Allow them.
+3. Optional local model: Settings › Smart model › Local open model › choose one › **Download / load model**.
+4. Optional Private Cloud Compute: apps must apply to use it (apps under 2M downloads are eligible) on the Apple Developer website. Until approved, Settings shows it as unavailable.
+5. Mac: to let `disk_usage` see `~/Library`, give Hermes Full Disk Access in System Settings › Privacy & Security. The terminal tool is under Settings › Tools.
 
 `swift test` (on macOS 27) runs the unit tests for memory, skills, session search, cron, routing and context fitting.
 
 ## Layout
 
 ```
-Package.swift                 HermesKit (the harness), Swift package
-Sources/HermesKit/
-  Agent/      HermesAgent (the loop), PromptBuilder, ContextBudget, Router,
-              Compression, LearningLoop, SlashCommands
-  Memory/     MemoryStore
-  Skills/     SkillStore
-  Sessions/   SessionStore (SQLite + FTS5)
-  Cron/       CronStore, CronRunner (+ notifications)
-  Models/     ModelProvider: all Foundation Models SDK specifics
-  Tools/      memory, skills, session_search, device, calendar/reminders,
-              web_fetch, run_shortcut, cronjob, delegate_task
+Package.swift
+Sources/HermesKit/          the harness (no MLX dependency)
+  Agent/      HermesAgent (the loop + model selection), PromptBuilder, ContextBudget,
+              Router, Compression, LearningLoop, SlashCommands
+  Memory/ Skills/ Sessions/ Cron/
+  Models/     ModelProvider: Foundation Models specifics, LocalModelProvider protocol
+  Tools/      all tools; MacTools.swift = terminal, disk_usage
   Resources/  SOUL.md, BundledSkills/
-App/                          SwiftUI app + App Intents (Siri), background tasks
-project.yml                   XcodeGen spec for the iOS app
-docs/FEASIBILITY.md           What's true, what isn't, what of Hermes can't run on iOS
+Sources/HermesLocalModels/  MLXLocalModel: open models through Apple's MLX adapter
+App/                        SwiftUI app shared by iPhone and Mac, App Intents, background work
+project.yml                 XcodeGen: Hermes (iOS) and HermesMac targets
+docs/FEASIBILITY.md         What's true, what isn't, what of Hermes can't run on Apple devices
 ```
 
 ## Known limits
 
-- The on-device model is small. It's good at routing to tools, short answers, summaries and extraction. It's weak at long reasoning and code. Use `/think` with Private Cloud Compute for those, if you're OK with Apple's private cloud.
-- iOS has no always-on background process. Scheduled jobs need the Shortcuts automation for exact timing.
-- `run_shortcut` only works while the app is on screen, because it opens the Shortcuts app.
-- No terminal, code execution or browser automation: the iOS sandbox doesn't allow them.
+- Apple's on-device model is small (~3B). The smart tiers exist for anything that needs real reasoning.
+- Local models need RAM. A 4B model on iPhone works but is slower than Apple's model. A Mac is where local models shine.
+- iPhone has no always-on background process, so scheduled jobs there need the Shortcuts automation for exact timing. The Mac doesn't.
+- The Mac app runs without the App Sandbox, so it's for personal use, not the Mac App Store.
 
 ## Next steps
 
-- First compile on Xcode 27 and fix SDK mismatches.
-- Adopt App Schemas where tools fit (reminders, calendar, documents), so Siri AI can use them without Hermes.
-- A Mac companion (the same toolbox as a macOS app) so "check my Mac's storage" runs on the Mac, with Mac Siri as the front end there.
-- Use iOS 27 `DynamicProfile` for routing instead of a fresh session per turn.
-- Add a `LanguageModel` conformer that forwards hard requests to your Mac (MLX) or to Claude, as a third tier.
-- Use the system `OCRTool` and Spotlight search tool, plus Contacts and Photos tools.
-- Add an editor for SOUL.md, memory entries and skills in the app.
+- First compile on Xcode 27, and fix SDK mismatches.
+- Phone → Mac hand-off: let the iPhone send hard requests to the Mac's bigger local model over your home network.
+- Use iOS 27 `DynamicProfile` instead of a fresh session per turn.
+- Run evals (Apple's new Evaluations framework) to tune when to escalate.

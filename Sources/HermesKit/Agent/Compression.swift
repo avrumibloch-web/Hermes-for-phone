@@ -51,14 +51,12 @@ extension HermesAgent {
 
         Write the updated summary.
         """
-        // Summaries always run on-device when possible: cheap, private, and fast.
-        let tier: ModelTier = models.onDeviceUnavailableReason() == nil ? .onDevice : .privateCloud
+        // Summaries run on-device when possible: fast, private, and no PCC quota used.
         do {
+            guard let tier = await workerTier() else { throw AgentError(message: "no model") }
             let session = models.makeSession(tier: tier, tools: [], instructions: Self.summarizerInstructions)
-            let response = try await session.respond(
-                to: prompt, options: GenerationOptions(temperature: 0.2, maximumResponseTokens: 260)
-            )
-            return TextUtil.truncate(response.content.trimmingCharacters(in: .whitespacesAndNewlines), to: Self.summaryCharLimit)
+            let content = try await models.respond(session, to: prompt, tier: tier)
+            return TextUtil.truncate(content.trimmingCharacters(in: .whitespacesAndNewlines), to: Self.summaryCharLimit)
         } catch {
             // Never lose the ability to make progress: fall back to a mechanical digest.
             let digest = transcript.split(separator: "\n").suffix(6).map { TextUtil.truncate(String($0), to: 120) }.joined(separator: " ")

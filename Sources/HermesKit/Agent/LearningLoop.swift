@@ -46,7 +46,7 @@ extension HermesAgent {
     /// assertion) and from the BGProcessingTask handler.
     @discardableResult
     public func runPendingReviews(limit: Int = 2) async -> Int {
-        guard settings.backgroundReview, models.onDeviceUnavailableReason() == nil else { return 0 }
+        guard settings.backgroundReview, await workerTier() != nil else { return 0 }
         let pending = (try? await sessions.sessionsNeedingReview(limit: limit)) ?? []
         var done = 0
         for info in pending {
@@ -90,11 +90,12 @@ extension HermesAgent {
         prompt += "Conversation:\n" + lines.joined(separator: "\n") + "\n\n" + Self.reviewPrompt
 
         do {
-            let session = models.makeSession(tier: .onDevice, tools: tools, instructions: instructions)
-            let response = try await session.respond(to: prompt, options: GenerationOptions(temperature: 0.2, maximumResponseTokens: 400))
+            guard let tier = await workerTier() else { return }
+            let session = models.makeSession(tier: tier, tools: tools, instructions: instructions)
+            let content = try await models.respond(session, to: prompt, tier: tier)
             let saved = await activity.drain()
             if !saved.isEmpty {
-                let log = "Learning review: " + response.content + "\n" + saved.map { "\($0.tool): \($0.summary)" }.joined(separator: "\n")
+                let log = "Learning review: " + content + "\n" + saved.map { "\($0.tool): \($0.summary)" }.joined(separator: "\n")
                 try? await sessions.append(info.id, role: "tool", content: log)
             }
         } catch {

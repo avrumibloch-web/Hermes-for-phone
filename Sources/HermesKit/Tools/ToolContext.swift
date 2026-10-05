@@ -48,13 +48,24 @@ enum ToolRegistry {
             case .skills: out += [SkillViewTool(context: c), SkillsListTool(context: c)]
             case .skillAuthoring: out.append(SkillManageTool(context: c))
             case .sessions: out.append(SessionSearchTool(context: c))
-            case .device: out.append(DeviceStatusTool(context: c))
+            case .device:
+                #if os(macOS)
+                out += [DiskUsageTool(context: c), DeviceStatusTool(context: c)]
+                #else
+                out.append(DeviceStatusTool(context: c))
+                #endif
             case .calendar: out += [CalendarEventsTool(context: c), CreateCalendarEventTool(context: c)]
             case .reminders: out += [RemindersListTool(context: c), CreateReminderTool(context: c)]
             case .web: if c.settings.allowNetworkTools { out.append(WebFetchTool(context: c)) }
             case .shortcuts: out.append(RunShortcutTool(context: c))
             case .cron: out.append(CronJobTool(context: c))
             case .delegate: if c.delegate != nil { out.append(DelegateTaskTool(context: c)) }
+            case .terminal:
+                #if os(macOS)
+                if c.settings.allowTerminal { out.append(TerminalTool(context: c)) }
+                #else
+                break
+                #endif
             }
         }
         // Toolsets are in priority order (memory and skills first), so trimming drops the

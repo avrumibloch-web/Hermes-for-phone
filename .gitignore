@@ -5,4 +5,5 @@ DerivedData/
 *.xcodeproj/
 *.xcworkspace/
 xcuserdata/
-App/Info.plist
+Config/*.plist
+Config/*.entitlements

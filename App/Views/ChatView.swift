@@ -43,7 +43,11 @@ final class ChatViewModel: ObservableObject {
                 }
                 let reply = try await agent.send(text, sessionID: id)
                 var detail: [String] = []
-                if reply.tier == .privateCloud { detail.append("Private Cloud Compute") }
+                switch reply.tier {
+                case .onDevice: break
+                case .local: detail.append(await agent.localModel?.displayName ?? "local model")
+                case .privateCloud: detail.append("Private Cloud Compute")
+                }
                 if reply.compressedHistory { detail.append("compressed earlier messages") }
                 detail += reply.activity.map { "\($0.tool): \($0.summary)" }
                 lines.append(ChatLine(role: .assistant, text: reply.text, detail: detail.isEmpty ? nil : detail.joined(separator: "\n")))
@@ -84,9 +88,11 @@ struct ChatView: View {
             }
             .safeAreaInset(edge: .bottom) { composer }
             .navigationTitle("Hermes")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .primaryAction) {
                     Button { model.newChat() } label: { Image(systemName: "square.and.pencil") }
                         .accessibilityLabel("New conversation")
                 }
@@ -112,7 +118,7 @@ struct ChatView: View {
                 }
             }
             .padding(10)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+            .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
         case .notice:
             Text(line.text).font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity)
         }
@@ -120,11 +126,12 @@ struct ChatView: View {
 
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("Message, /think, /new or /skill-name", text: $model.draft, axis: .vertical)
+            TextField("Message, /think, /fast, /new or /skill-name", text: $model.draft, axis: .vertical)
                 .lineLimit(1...6)
                 .focused($focused)
+                .textFieldStyle(.plain)
                 .padding(10)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
+                .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
                 .onSubmit { model.send() }
             Button { model.send() } label: {
                 Image(systemName: "arrow.up.circle.fill").font(.system(size: 30))

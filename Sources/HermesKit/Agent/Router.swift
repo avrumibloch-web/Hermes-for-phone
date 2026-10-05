@@ -8,23 +8,32 @@ public enum Toolset: String, CaseIterable, Sendable, Codable {
     case skills          // skills_list, skill_view
     case skillAuthoring  // skill_manage
     case sessions        // session_search
-    case device          // device_status
+    case device          // device_status (+ disk_usage on Mac)
     case calendar        // calendar_events, create_calendar_event
     case reminders       // reminders_list, create_reminder
     case web             // web_fetch
     case shortcuts       // run_shortcut
     case cron            // cronjob
     case delegate        // delegate_task
+    case terminal        // terminal (Mac only, off by default)
 }
 
+/// Which model runs a turn. All three are reached through the same Foundation Models
+/// API (`LanguageModelSession`), and none costs anything per token.
 public enum ModelTier: String, Sendable, Codable {
+    /// Apple's on-device model (`SystemLanguageModel`). Fast, offline, 8K context.
     case onDevice
+    /// An open-weight model (e.g. Qwen3) running on this device through MLX.
+    case local
+    /// Apple's server model on Private Cloud Compute: 32K context, reasoning, free
+    /// with a daily per-user limit.
     case privateCloud
 }
 
 public struct RouteDecision: Sendable, Equatable {
     public var toolsets: [Toolset]
-    public var tier: ModelTier
+    /// The request should go to the "smart" model (local MLX or PCC) if one is set up.
+    public var wantsSmart: Bool
     public var reason: String
 }
 
@@ -32,13 +41,14 @@ public enum Router {
     static let keywords: [(Toolset, [String])] = [
         (.calendar, ["calendar", "meeting", "event", "schedule", "appointment", "agenda", "free time", "busy", "today", "tomorrow", "this week", "next week"]),
         (.reminders, ["remind", "reminder", "to-do", "todo", "task list", "grocery", "shopping list"]),
-        (.device, ["battery", "charge", "storage", "space left", "low power", "thermal", "hot", "device", "phone status"]),
+        (.device, ["battery", "charge", "storage", "disk", "space left", "what's using", "whats using", "low power", "thermal", "hot", "device", "phone status"]),
         (.sessions, ["last time", "earlier", "yesterday", "we talked", "we discussed", "did i tell", "did i say", "remember when", "previous", "before", "you said"]),
         (.web, ["http://", "https://", "website", "web page", "url", "fetch", "look up", "server", " api", "jellyfin", "endpoint"]),
         (.shortcuts, ["shortcut", "home", "lights", "thermostat", "music", "play ", "send message", "text ", "message "]),
         (.cron, ["every day", "every weekday", "weekdays", "every morning", "every evening", "every night", "every week", "daily", "weekly", "each morning", "every hour", "schedule a job", "recurring", "cron", "automatically at"]),
         (.skillAuthoring, ["skill", "save this workflow", "save the procedure", "learn how", "/learn", "remember how to"]),
         (.delegate, ["research", "compare", "step by step", "plan out", "break down", "investigate"]),
+        (.terminal, ["terminal", "shell", "command line", "run the command", "brew ", "git ", "script", "process", "folder", "directory", "files in"]),
     ]
 
     static let hardSignals = [
@@ -51,7 +61,7 @@ public enum Router {
         "reminders_list": .reminders, "create_reminder": .reminders,
         "device_status": .device, "web_fetch": .web, "run_shortcut": .shortcuts,
         "session_search": .sessions, "cronjob": .cron, "skill_manage": .skillAuthoring,
-        "delegate_task": .delegate,
+        "delegate_task": .delegate, "terminal": .terminal, "disk_usage": .device,
     ]
 
     /// Toolsets whose tools a skill body mentions, so a loaded skill gets the tools its
@@ -74,12 +84,13 @@ public enum Router {
             .sorted()
     }
 
-    /// Picks toolsets and a model tier for one request.
+    /// Picks toolsets, and whether the request wants the smart model.
+    /// `forceSmart`: true for `/think`, false for `/fast`, nil to decide here.
     public static func route(
         _ message: String,
         settings: HermesSettings,
         hasSkills: Bool,
-        forceTier: ModelTier? = nil,
+        forceSmart: Bool? = nil,
         loadedSkillBodies: [String] = []
     ) -> RouteDecision {
         let text = message.lowercased()
@@ -94,24 +105,33 @@ public enum Router {
 
         for (set, words) in keywords where words.contains(where: { text.contains($0) }) {
             if set == .web, !settings.allowNetworkTools { continue }
+            if set == .terminal, !settings.allowTerminal { continue }
             sets.append(set)
         }
 
-        var tier: ModelTier = .onDevice
-        var reason = "on-device"
-        if let forceTier {
-            tier = forceTier
-            reason = "forced"
-        } else if settings.allowPrivateCloud, settings.autoEscalate,
+        let wantsSmart: Bool
+        let reason: String
+        if let forceSmart {
+            wantsSmart = forceSmart
+            reason = forceSmart ? "/think" : "/fast"
+        } else if settings.smartModel == .off {
+            wantsSmart = false
+            reason = "no smart model set up"
+        } else if settings.useSmartModelForEverything {
+            wantsSmart = true
+            reason = "smart model for everything"
+        } else if settings.autoEscalate,
                   message.count > 900 || hardSignals.contains(where: { text.contains($0) }) {
-            tier = .privateCloud
+            wantsSmart = true
             reason = "looks hard"
+        } else {
+            wantsSmart = false
+            reason = "simple"
         }
-        if tier == .privateCloud, !settings.allowPrivateCloud { tier = .onDevice; reason = "private cloud disabled" }
 
         // Remove duplicates, keep order.
         var seen = Set<Toolset>()
         sets = sets.filter { seen.insert($0).inserted }
-        return RouteDecision(toolsets: sets, tier: tier, reason: reason)
+        return RouteDecision(toolsets: sets, wantsSmart: wantsSmart, reason: reason)
     }
 }

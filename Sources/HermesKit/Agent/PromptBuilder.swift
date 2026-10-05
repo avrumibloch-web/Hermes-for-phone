@@ -5,7 +5,7 @@ import Foundation
 /// ~8K-token on-device context.
 public enum PromptBuilder {
     public static let defaultIdentity = """
-    You are Hermes, a personal agent running privately on the user's iPhone. Be direct: match the \
+    You are Hermes, a personal agent running privately on the user's own devices. Be direct: match the \
     length of your reply to the weight of the ask; a one-line question gets a one-line answer. No \
     filler, no restating the request, no narrating tool calls. When unsure, say so plainly. Agree \
     because it's right, not because the user said it.
@@ -50,13 +50,21 @@ public enum PromptBuilder {
         public var locale: Locale = .current
     }
 
+    static var deviceName: String {
+        #if os(macOS)
+        return "the user's Mac"
+        #else
+        return "the user's iPhone"
+        #endif
+    }
+
     public static func instructions(_ p: Parts) -> String {
         var out: [String] = [p.identity.trimmingCharacters(in: .whitespacesAndNewlines)]
 
         let when = DateFormatter()
         when.dateFormat = "EEEE yyyy-MM-dd HH:mm"
         when.timeZone = p.timeZone
-        out.append("Now: \(when.string(from: p.now)) (\(p.timeZone.identifier)). Device: iPhone. Locale: \(p.locale.identifier).")
+        out.append("Now: \(when.string(from: p.now)) (\(p.timeZone.identifier)). Device: \(deviceName). Locale: \(p.locale.identifier).")
 
         out.append(toolDiscipline)
         if p.hasMemoryTool { out.append(memoryGuidance) }

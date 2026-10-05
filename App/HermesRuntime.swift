@@ -1,8 +1,11 @@
 import Foundation
-import BackgroundTasks
 import HermesKit
+import HermesLocalModels
+#if os(iOS)
+import BackgroundTasks
+#endif
 
-/// One agent per process, shared by the UI, App Intents (Siri) and background tasks.
+/// One agent per process, shared by the UI, App Intents (Siri) and background work.
 enum HermesRuntime {
     static let cronTaskID = "com.example.hermes.cron"
     static let reviewTaskID = "com.example.hermes.review"
@@ -17,6 +20,7 @@ enum HermesRuntime {
             guard !done else { return }
             done = true
             await agent.bootstrap()
+            await HermesRuntime.installLocalModel(on: agent, settings: await agent.settings)
         }
     }
     private static let once = Once()
@@ -27,8 +31,32 @@ enum HermesRuntime {
         return agent
     }
 
-    // MARK: Background work
+    /// Saves settings and rebuilds the local MLX model if its configuration changed.
+    static func apply(_ settings: HermesSettings) async {
+        guard let agent = try? await ready() else { return }
+        let old = await agent.settings
+        await agent.update(settings: settings)
+        if old.smartModel != settings.smartModel || old.localModelID != settings.localModelID
+            || old.localContextTokens != settings.localContextTokens || old.localModelReasoning != settings.localModelReasoning {
+            await installLocalModel(on: agent, settings: settings)
+        }
+    }
 
+    static func installLocalModel(on agent: HermesAgent, settings: HermesSettings) async {
+        guard settings.smartModel == .local else {
+            await agent.setLocalModel(nil)
+            return
+        }
+        await agent.setLocalModel(MLXLocalModel(
+            modelID: settings.localModelID,
+            contextSize: settings.localContextTokens,
+            reasoning: settings.localModelReasoning
+        ))
+    }
+
+    // MARK: Background work (iPhone)
+
+    #if os(iOS)
     /// Must run before the app finishes launching.
     static func registerBackgroundTasks() {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: cronTaskID, using: nil) { task in
@@ -47,10 +75,12 @@ enum HermesRuntime {
             task.expirationHandler = { work.cancel() }
         }
     }
+    #endif
 
-    /// Asks iOS for time to run the next due job, and for a charging-only slot for the
-    /// learning loop (reviews are the heaviest background work, so they wait for power).
+    /// iPhone: asks iOS for time to run the next due job, and for a charging-only slot for
+    /// the learning loop. Mac: nothing to do; the app's own timer handles both.
     static func scheduleBackgroundWork() async {
+        #if os(iOS)
         guard let agent = try? await ready() else { return }
         if let next = await agent.cron.nextWake() {
             let request = BGAppRefreshTaskRequest(identifier: cronTaskID)
@@ -61,5 +91,6 @@ enum HermesRuntime {
         review.requiresExternalPower = true
         review.requiresNetworkConnectivity = false
         try? BGTaskScheduler.shared.submit(review)
+        #endif
     }
 }
