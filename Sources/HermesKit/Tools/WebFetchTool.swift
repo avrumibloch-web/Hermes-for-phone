@@ -16,7 +16,16 @@ struct WebFetchTool: Tool {
     }
 
     func call(arguments: Arguments) async throws -> String {
-        guard let url = URL(string: arguments.url.trimmingCharacters(in: .whitespaces)),
+        let result = await WebFetcher.fetch(arguments.url)
+        await context.log(name, "\(URL(string: arguments.url)?.host ?? arguments.url) \(result.prefix(8))")
+        return result
+    }
+}
+
+/// Shared by the `web_fetch` tool and the "Fetch URL" App Intent.
+public enum WebFetcher {
+    public static func fetch(_ raw: String, maxChars: Int = 2_500) async -> String {
+        guard let url = URL(string: raw.trimmingCharacters(in: .whitespaces)),
               let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http" else {
             return "Error: provide a full http(s) URL."
         }
@@ -28,9 +37,8 @@ struct WebFetchTool: Tool {
             let type = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? ""
             var text = String(decoding: data.prefix(400_000), as: UTF8.self)
             if type.contains("html") { text = TextUtil.stripHTML(text) }
-            await context.log(name, "\(url.host ?? "") \(status)")
             // ~2,500 chars ≈ 800 tokens: enough to answer from, small enough for 8K.
-            return "HTTP \(status)\n" + TextUtil.truncate(text, to: 2_500)
+            return "HTTP \(status)\n" + TextUtil.truncate(text, to: maxChars)
         } catch {
             return "Error: \(error.localizedDescription)"
         }

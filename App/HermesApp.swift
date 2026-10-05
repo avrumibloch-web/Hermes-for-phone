@@ -21,7 +21,12 @@ struct HermesApp: App {
                 SettingsView()
                     .tabItem { Label("Settings", systemImage: "gearshape") }
             }
-            .task { _ = await Notifier.requestPermission() }
+            .task {
+                _ = await Notifier.requestPermission()
+                // Skills can change (the agent writes its own), so refresh the values Siri
+                // accepts in "Run <skill> with Hermes".
+                HermesShortcuts.updateAppShortcutParameters()
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {

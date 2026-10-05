@@ -10,6 +10,15 @@ Hermes is a model plus a harness: memory, skills, session search, context compre
 
 **v0.1, not yet compiled.** The code was written against the iOS 27 SDK as documented at WWDC26, in a Linux environment with no Xcode. Expect a few compile fixes on first build. Every SDK-specific call into Foundation Models is in [`Sources/HermesKit/Models/ModelProvider.swift`](Sources/HermesKit/Models/ModelProvider.swift), so that's the first place to look.
 
+## Two halves: agent and toolbox
+
+Siri AI (the new Siri in iOS 27) only reasons over actions that adopt Apple's **App Schemas**. Custom tools (your Mac, Pi, servers) don't fit a schema. So the app does both jobs:
+
+- **Toolbox:** plain App Intents (`App/Intents/ToolboxIntents.swift`) for phone status, URL fetch, remember, history search, and run-a-skill. Siri runs them by phrase. Shortcuts can chain them and pass their output to the built-in **Use Model** action, so Apple's model does the reasoning.
+- **Agent:** "Ask Hermes" for open-ended requests. The Foundation Models harness below picks the tools itself.
+
+Details and sources: [docs/FEASIBILITY.md](docs/FEASIBILITY.md#let-siri-ai-be-the-agent-my-app-is-just-the-tools).
+
 ## How it maps to Hermes
 
 | Hermes | Here |
@@ -89,6 +98,8 @@ docs/FEASIBILITY.md           What's true, what isn't, what of Hermes can't run 
 ## Next steps
 
 - First compile on Xcode 27 and fix SDK mismatches.
+- Adopt App Schemas where tools fit (reminders, calendar, documents), so Siri AI can use them without Hermes.
+- A Mac companion (the same toolbox as a macOS app) so "check my Mac's storage" runs on the Mac, with Mac Siri as the front end there.
 - Use iOS 27 `DynamicProfile` for routing instead of a fresh session per turn.
 - Add a `LanguageModel` conformer that forwards hard requests to your Mac (MLX) or to Claude, as a third tier.
 - Use the system `OCRTool` and Spotlight search tool, plus Contacts and Photos tools.

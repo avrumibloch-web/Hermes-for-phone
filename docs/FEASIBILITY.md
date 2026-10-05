@@ -34,6 +34,28 @@
 | Big-model reasoning | ⚠️ | Opt-in Private Cloud Compute (`/think`), or a `LanguageModel` conformer for Claude/your Mac later |
 | Controlling other apps, HomeKit, Messages | ⚠️ | No public API for most of it. `run_shortcut` starts any Shortcut by name (foreground only) |
 
+## "Let Siri AI be the agent, my app is just the tools"
+
+Partly possible. The catch is **App Schemas**.
+
+| Claim | Verdict | Notes |
+|---|---|---|
+| Siri AI combines its models with your app's actions and content through App Intents | **True** | App Intents is the only way in. SiriKit is deprecated. |
+| Siri AI can chain actions across apps (model → tool → result → model) | **True, for schema actions** | There is a new system orchestrator. Apple's example chains three apps in one request. |
+| Siri AI will decide to use *any* of your app's tools from natural language | **False** | Apple, in the WWDC26 Apple Intelligence lab: "You must adopt a schema to integrate with the new Siri AI." Schemas are Apple-designed shapes grouped into domains: messages, mail, photos, calendar, reminders, audio, timers, system search/open, and more. Siri reasons over actions and content that adopt one. |
+| "Siri, check my Mac's storage and if there's less than 100 GB free, tell me what's using it" | **Not as one open-ended request** | There's no schema for "Mac storage", so Siri AI won't plan around that tool. Custom intents still reach Siri, but only as **App Shortcuts** with fixed phrases you supply ("Check my Mac with Hermes"). |
+| Your app can orchestrate other apps' intents | **False** | No third-party-to-third-party invocation. Only the system orchestrator does that. |
+
+So "Siri AI is the brain" works for things that fit a schema. Examples: reminders, calendar events, messages, notes-like documents, media. For everything else (your Mac, Pi, Jellyfin, servers), there are three routes. This repo supports all three:
+
+1. **App Shortcut phrases** → a plain App Intent. Siri runs it and speaks the result. It's fixed-phrase, with no reasoning in between. (`GetPhoneStatusIntent`, `RunSkillIntent`, `RememberIntent`…)
+2. **Shortcuts + "Use Model"**: Apple's model as the brain over your tools. Each toolbox intent returns a value. In a Shortcut, chain them and hand the output to the built-in **Use Model** action (on-device or Private Cloud Compute) to apply the logic ("if under 100 GB, list what's using it"). Then give the Shortcut a Siri name. This is the closest thing to "Siri is the agent" for custom tools.
+3. **"Ask Hermes"**: an open-ended request goes to the Foundation Models agent in this repo, which can call the custom tools itself. Apple lets your app run that model with tools ("agentic app experiences"). It's the only route where a model freely decides which custom tool to use.
+
+The longer-term move is to **adopt schemas where the tools fit**. Make reminders, calendar events and documents real App Entities with schemas (`IndexedEntity`, Spotlight). Then Siri AI can answer questions about them and act on them directly, with Hermes nowhere in the loop. The available schema names are listed in Xcode 27's autocomplete and the App Intents docs. They aren't in this repo yet because I couldn't verify the exact identifiers without the SDK.
+
+Sources for this section: [WWDC26 session 240: Build intelligent Siri experiences with App Schemas](https://developer.apple.com/videos/play/wwdc2026/240/), [WWDC26 Apple Intelligence group lab](https://developer.apple.com/videos/play/wwdc2026/8011/) (community notes: [ivan-magda/wwdc26-notes](https://github.com/ivan-magda/wwdc26-notes)), [NowSecure on App Intents and Siri AI](https://www.nowsecure.com/blog/2026/08/05/what-appsec-teams-need-to-know-about-app-intents-siri-ai-and-the-new-ios-27-attack-surface/).
+
 ## Sources
 
 - [WWDC26: What's new in the Foundation Models framework](https://developer.apple.com/videos/play/wwdc2026/241/) (8,192-token on-device context, `LanguageModel` protocol, PCC model, tools, dynamic profiles)

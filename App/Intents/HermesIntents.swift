@@ -63,6 +63,24 @@ struct HermesShortcuts: AppShortcutsProvider {
             systemImageName: "plus.bubble"
         )
         AppShortcut(
+            intent: RunSkillIntent(),
+            phrases: ["Run \(\.$skill) with \(.applicationName)", "\(.applicationName) \(\.$skill)"],
+            shortTitle: "Run Skill",
+            systemImageName: "list.bullet.rectangle"
+        )
+        AppShortcut(
+            intent: GetPhoneStatusIntent(),
+            phrases: ["Get phone status with \(.applicationName)", "Check my phone with \(.applicationName)"],
+            shortTitle: "Phone Status",
+            systemImageName: "battery.75percent"
+        )
+        AppShortcut(
+            intent: RememberIntent(),
+            phrases: ["Remember something with \(.applicationName)", "Tell \(.applicationName) to remember"],
+            shortTitle: "Remember",
+            systemImageName: "brain"
+        )
+        AppShortcut(
             intent: RunScheduledJobsIntent(),
             phrases: ["Run \(.applicationName) scheduled jobs"],
             shortTitle: "Run Scheduled Jobs",

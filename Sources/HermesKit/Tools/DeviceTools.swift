@@ -16,6 +16,15 @@ struct DeviceStatusTool: Tool {
     }
 
     func call(arguments: Arguments) async throws -> String {
+        let result = await DeviceStatus.report(includeStorage: arguments.includeStorage)
+        await context.log(name, result)
+        return result
+    }
+}
+
+/// Shared by the `device_status` tool and the "Get Phone Status" App Intent.
+public enum DeviceStatus {
+    public static func report(includeStorage: Bool) async -> String {
         var parts: [String] = []
         #if canImport(UIKit)
         let battery = await MainActor.run { () -> (Float, UIDevice.BatteryState) in
@@ -44,14 +53,12 @@ struct DeviceStatusTool: Tool {
         @unknown default: thermal = "unknown"
         }
         parts.append("Thermal \(thermal)")
-        if arguments.includeStorage,
+        if includeStorage,
            let values = try? URL(fileURLWithPath: NSHomeDirectory()).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]),
            let free = values.volumeAvailableCapacityForImportantUsage {
             parts.append("Free storage \(ByteCountFormatter.string(fromByteCount: free, countStyle: .file))")
         }
-        let result = parts.joined(separator: ". ") + "."
-        await context.log(name, result)
-        return result
+        return parts.joined(separator: ". ") + "."
     }
 }
 
